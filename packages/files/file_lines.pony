@@ -1,6 +1,6 @@
 use "buffered"
 
-class FileLines is Iterator[String]
+class FileLines is Iterator[String iso^]
   """
   Iterate over the lines in a file.
   """
@@ -27,7 +27,7 @@ class FileLines is Iterator[String]
   fun ref has_next(): Bool =>
     _has_next
 
-  fun ref next(): String ? =>
+  fun ref next(): String iso^ ? =>
     // get back to position of last line
     let current_pos = _file.position()
     _file.seek_start(_cursor)
@@ -56,7 +56,7 @@ class FileLines is Iterator[String]
             if errno is FileEOF then
               _has_next = false
               if _reader.size() > 0 then
-                return _read_last_line()
+                return _read_last_line()?
               else
                 error
               end
@@ -68,7 +68,7 @@ class FileLines is Iterator[String]
         // don't forget the last line
         _has_next = false
         if _reader.size() > 0 then
-          _read_last_line()
+          _read_last_line()?
         else
           error
         end
@@ -81,16 +81,14 @@ class FileLines is Iterator[String]
       _file.seek_start(current_pos)
     end
 
-  fun ref _read_line(): String ? =>
-    let line: String = _reader.line()?
+  fun ref _read_line(): String iso^ ? =>
+    let line = _reader.line()?
     _last_line_length = line.size()
-    line
+    consume line
 
-  fun ref _read_last_line(): String =>
-    let block = _reader.block(_reader.size())
-    recover val
-      String.from_iso_array(consume block)
-    end
+  fun ref _read_last_line(): String iso^ ? =>
+    let block = _reader.block(_reader.size())?
+    String.from_iso_array(consume block)
 
 
 
