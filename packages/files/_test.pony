@@ -2,6 +2,8 @@ use "ponytest"
 use "collections"
 use "buffered"
 use "term"
+use "random"
+use "time"
 
 actor Main is TestList
   new create(env: Env) => PonyTest(env, this)
@@ -41,6 +43,7 @@ actor Main is TestList
     test(_TestFileMixedWriteQueue)
     test(_TestFileWritevLarge)
     test(_TestFileLinesEmptyFile)
+    test(_TestFileLinesSingleLine)
 
 primitive _FileHelper
   fun make_files(h: TestHelper, files: Array[String]): FilePath ? =>
@@ -775,33 +778,116 @@ class iso _TestFileWritevLarge is UnitTest
       h.fail("Unhandled error!")
     end
 
+
 class iso _TestFileLinesEmptyFile is UnitTest
-  var _tmp_dir: (FilePath | None) = None
+  var tmp_dir: (FilePath | None) = None
+
+  fun ref set_up(h: TestHelper) ? =>
+    tmp_dir = FilePath.mkdtemp(h.env.root as AmbientAuth, "empty")?
+
+  fun ref tear_down(h: TestHelper) =>
+    try (tmp_dir as FilePath).remove() end
 
   fun name(): String => "files/FileLines.empty"
 
   fun ref apply(h: TestHelper) ? =>
-    let tmp_dir = FilePath.mkdtemp(h.env.root as AmbientAuth, name())?
-    _tmp_dir = tmp_dir
-
-    let tmp_file = tmp_dir.join("empty")?
+    let tmp_file = (tmp_dir as FilePath).join("empty")?
     with file = CreateFile(tmp_file) as File do
       file.write(Array[U8])
     end
 
-    with file = OpenFile(tmp_file) as File do
-      let fl = FileLines(file)
-      h.assert_true(fl.has_next(), "FileLines does not return an empty line for an empty file")
-      try
-        let empty_line = fl.next()?
-        h.assert_eq[USize](empty_line.size(), 0)
-      else
-        h.fail("FileLines failed to return an empty line for an empty file")
+    with f = OpenFile(tmp_file) as File do
+      let fl = FileLines(f)
+      var lines_returned: USize = 0
+      for _ in fl do
+        lines_returned = lines_returned + 1
       end
+      h.assert_eq[USize](lines_returned, 0, "FileLines returned a line for an empty file")
     end
+
+class iso _TestFileLinesSingleLine is UnitTest
+
+  let lines: Array[String] = [ as String:
+    "a"
+    "a\n"
+    "a\r\n"
+    "abcd"
+    "ABCD\n"
+    "ABCD\r\n"
+    String.from_array(recover val Array[U8].init('a', 255) end)
+    String.from_array(recover val Array[U8].init('a', 255) end) + "\n"
+    String.from_array(recover val Array[U8].init('a', 255) end) + "\r\n"
+    String.from_array(recover val Array[U8].init('b', 256) end)
+    String.from_array(recover val Array[U8].init('b', 256) end) + "\n"
+    String.from_array(recover val Array[U8].init('b', 256) end) + "\r\n"
+    String.from_array(recover val Array[U8].init('c', 257) end)
+    String.from_array(recover val Array[U8].init('c', 257) end) + "\n"
+    String.from_array(recover val Array[U8].init('c', 257) end) + "\r\n"
+    String.from_array(recover val Array[U8].init('d', 100_000) end)
+  ]
+
+  var tmp_dir: (FilePath | None) = None
+
+  fun ref set_up(h: TestHelper) ? =>
+    tmp_dir = FilePath.mkdtemp(h.env.root as AmbientAuth, "single-line")?
 
   fun ref tear_down(h: TestHelper) =>
     try
-      (_tmp_dir as FilePath).remove()
+      h.env.out.print((tmp_dir as FilePath).path)
     end
+
+  fun name(): String => "files/FileLines.single_line"
+
+  fun ref apply(h: TestHelper)? =>
+    var i: USize = 0
+    for line in lines.values() do
+      let tmp_file = (tmp_dir as FilePath).join("single-line-" + i.string())?
+      with file = CreateFile(tmp_file) as File do
+        h.assert_true(
+          file.write(line),
+          "could not write to file: " + tmp_file.path)
+      end
+
+      with file = OpenFile(tmp_file) as File do
+        let fl = FileLines(file)
+        var lines_returned: USize = 0
+        for read_line in fl do
+          let compare_line =
+            if line.contains("\r\n") then
+              line.substring(0, line.size().isize() - 2)
+            elseif line.contains("\n") then
+              line.substring(0, line.size().isize() -1)
+            else
+              line
+            end
+          h.assert_eq[String](consume read_line, compare_line)
+          lines_returned = lines_returned + 1
+        end
+        h.assert_eq[USize](lines_returned, 1,
+          "FileLines returned " + lines_returned.string() +
+          " for single line: '" + line + "'")
+      end
+      i = i + 1
+    end
+
+class _TestFileLinesMultiLine is UnitTest
+  var tmp_dir: (FilePath | None) = None
+
+  fun ref set_up(h: TestHelper) ? =>
+    tmp_dir = FilePath.mkdtemp(h.env.root as AmbientAuth, "multi-line")?
+
+  fun ref tear_down(h: TestHelper) =>
+    try
+      h.env.out.print((tmp_dir as FilePath).path)
+    end
+
+  fun name(): String => "files/FileLines.multi_line"
+
+  fun ref apply(h: TestHelper) =>
+    // TODO
+    None
+
+
+
+
 

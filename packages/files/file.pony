@@ -94,7 +94,6 @@ class File
   var _unsynced_data: Bool = false
   var _unsynced_metadata: Bool = false
   var _fd: I32
-  var _last_line_length: USize = 256
   var _errno: FileErrNo = FileOK
   embed _pending_writev: Array[USize] = _pending_writev.create()
   var _pending_writev_total: USize = 0
@@ -241,10 +240,10 @@ class File
       if r < len.isize() then
         _errno =
           if r == 0 then
-             FileEOF
-           else
-             _get_error() // error
-           end
+            FileEOF
+          else
+            _get_error() // error
+          end
       end
 
       result.truncate(r.usize())

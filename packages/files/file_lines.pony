@@ -1,4 +1,5 @@
 use "buffered"
+use "debug"
 
 class FileLines is Iterator[String iso^]
   """
@@ -22,7 +23,7 @@ class FileLines is Iterator[String iso^]
       | None => _file.position()
       end
     _min_read_size = min_read_size
-    _has_next = _file.valid() and (_file.errno() is FileOK)
+    _has_next = _file.valid()
 
   fun ref has_next(): Bool =>
     _has_next
@@ -30,52 +31,51 @@ class FileLines is Iterator[String iso^]
   fun ref next(): String iso^ ? =>
     // get back to position of last line
     let current_pos = _file.position()
+    Debug("saving current file pos: " + current_pos.string())
+    Debug("cursor is at: " + _cursor.string())
     _file.seek_start(_cursor)
 
     try
-      _read_line()?
-    else
-      match _file.errno()
-      | FileOK if _file.valid() =>
-        // get new line from file
-        while true do
-          let read_buf = _file.read(_last_line_length.max(_min_read_size))
-          _cursor = _file.position()
-          let errno = _file.errno()
-          if (errno isnt FileOK) and (errno isnt FileEOF) then
+      while _file.errno() isnt FileEOF do
+        try
+          return _read_line()?
+        else
+          Debug("no full line available in reader.")
+          if _file.valid() then
+            // get new line from file
+            let read_bytes = _last_line_length.max(_min_read_size)
+            Debug("reading " + read_bytes.string() + " bytes from file")
+            let read_buf = _file.read(read_bytes)
+            _cursor = _file.position()
+
+            let errno = _file.errno()
+            if (read_buf.size() == 0) and (errno isnt FileOK) and (errno isnt FileEOF) then
+              _has_next = false
+              Debug("not ok and not EOF after reading")
+              error
+            end
+
+            // TODO: Limit size of read buffer
+            _reader.append(consume read_buf)
+          else
+            Debug("file invalid")
             _has_next = false
             error
           end
 
-          _reader.append(consume read_buf)
-          try
-            return _read_line()?
-          else
-            // we read the last bytes from the file
-            // but didn't get a full line
-            if errno is FileEOF then
-              _has_next = false
-              if _reader.size() > 0 then
-                return _read_last_line()?
-              else
-                error
-              end
-            end
-          end
         end
-        error
-      | FileEOF =>
-        // don't forget the last line
-        _has_next = false
-        if _reader.size() > 0 then
-          _read_last_line()?
-        else
-          error
-        end
+      end
+      // don't forget the last line
+      _has_next = false
+      Debug("EOF")
+      if _reader.size() > 0 then
+        return _read_last_line()?
       else
-        _has_next = false
         error
       end
+    else
+      // propagating error
+      error
     then
       // reset position to not disturb other operations on the file
       _file.seek_start(current_pos)
